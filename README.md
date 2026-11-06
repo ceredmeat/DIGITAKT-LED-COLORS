@@ -45,7 +45,7 @@ digitakt-ledcolors
 LICENSE
 MIT License
 
-Copyright (c) 2026 Trackgod
+Copyright (c) 2026 CERELYDAT
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
