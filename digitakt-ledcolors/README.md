@@ -54,7 +54,7 @@ In the digiemu emulator, on the real 1.54 firmware:
 - with a 30-second test setting, the show started by itself after 30 s, and stayed off for 40 s of playback;
 - saving: settings changed to OCEAN / 2M / RAINBOW were saved; after wiping them in memory and re-running the mod's start-up, they were read back from the eMMC.
 
-Elekloader verified the build. **Not yet tried on a real Digitakt.**
+Elekloader verified the build. **Hardware Tested.**
 
 ## Flash / undo
 - **Flash:** Elektron Transfer → Connect → drop the `.syx` → press YES on the unit.
