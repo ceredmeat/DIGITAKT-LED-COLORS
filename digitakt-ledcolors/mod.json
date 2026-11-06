@@ -1,0 +1,84 @@
+{
+ "id": "ledcolors",
+ "version": "0.2",
+ "title": "LED colours: themes, picker, standby show",
+ "category": "Looks",
+ "license": "GPL-2.0-or-later",
+ "author": "made with Claude",
+ "description": "Seven SETTINGS rows. LED THEME recolours the key LEDs (STOCK, PINK, SOFT, LAVENDER, OCEAN, SUNSET, CUSTOM); LED EDIT and LED RED/GREEN/BLUE set any colour family's colour (0-31), previewed on the trig keys. LED IDLE (OFF/30S/1M/2M/5M) starts a light show (LED SHOW: COMET, RAINBOW, BREATHE) when no key, knob or sound has come for that long; the first key or knob only wakes it. The settings are saved (one eMMC block the stock firmware never uses, 0x60000) and restored at power-on; the first time, the theme is PINK and LED IDLE 1M.",
+ "device": "digitakt-mk1",
+ "os": "1.54",
+ "sources": [
+  "ledc.c",
+  "ledc.s"
+ ],
+ "cflags": [
+  "-DTAB_A_AT=0x401ba7d0",
+  "-DTAB_B_AT=0x401ba941",
+  "-DLOAD_PALETTE_AT=0x400e67fe",
+  "-DGET_INTENSITY_AT=0x4005f612",
+  "-DGET_BACKLIGHT_AT=0x4005f672",
+  "-DLED_MGR_AT=0x40138e1c",
+  "-DTRIG_LED_AT=0x400084b6",
+  "-DLED_SET_AT=0x400083a0",
+  "-DVIEWS_LEDS_AT=0x400ca632",
+  "-DXOFF=-4",
+  "-DYOFF=0",
+  "-DTEXT_ADV=4",
+  "-DBOX_DOWN=1",
+  "-DBOX_UP=6",
+  "-DTOP_LIMIT=52",
+  "-DEMMC_READ_AT=0x400e2c14",
+  "-DEMMC_WRITE_AT=0x400e2dfa",
+  "-DSAVE_BLOCK=0x60000"
+ ],
+ "defsym": {
+  "STR_CTOR": "0x4017af20"
+ },
+ "sites": [
+  {
+   "addr": "0x400099b6",
+   "stock": "4eb9400ca632",
+   "op": "jsr",
+   "target": "ledc_frame"
+  }
+ ],
+ "subscribe": [
+  {
+   "event": "ev_settings",
+   "fn": "ledc_settings",
+   "order": 70
+  },
+  {
+   "event": "ev_tick",
+   "fn": "ledc_tick",
+   "order": 70
+  },
+  {
+   "event": "ev_key",
+   "fn": "ledc_key",
+   "order": 5
+  },
+  {
+   "event": "ev_enc",
+   "fn": "ledc_enc",
+   "order": 5
+  }
+ ],
+ "resources": {
+  "core": "4.1",
+  "names": [
+   "ui:SETTINGS:LED THEME",
+   "ui:SETTINGS:LED EDIT",
+   "ui:SETTINGS:LED RED",
+   "ui:SETTINGS:LED GREEN",
+   "ui:SETTINGS:LED BLUE",
+   "ui:SETTINGS:LED IDLE",
+   "ui:SETTINGS:LED SHOW",
+   "emmc:block:0x60000"
+  ]
+ },
+ "requires": [
+  "core"
+ ]
+}
