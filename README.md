@@ -25,7 +25,7 @@ A custom LED theme editor and standby light show for the **Elektron Digitakt MKI
 | `mod.json` | Elekloader build and patch configuration |
 | `ledcolors-0.5.elemod` | Packaged mod for Elekloader |
 | `themes_preview.png` | Approximate theme preview |
-| `LICENSE` | MIT license for this project |
+| `LICENSE` | GNU GPL v2 (this project is GPL-2.0-or-later) |
 
 The full firmware `.syx` is intentionally not included. It contains Elektron firmware; this repository distributes the mod package and source only.
 
@@ -37,7 +37,7 @@ The mod changes firmware code and writes one 512-byte block at eMMC block `0x600
 
 ## License
 
-The source, configuration, and packaged mod in this repository are licensed under the [MIT License](LICENSE). The MIT license does not cover Elektron firmware, trademarks, or other third-party materials.
+The source, configuration, and packaged mod in this repository are licensed under the **GNU General Public License v2.0 or later** (GPL-2.0-or-later), the same licence as Elekloader, which the mod is built on. See [LICENSE](LICENSE). The licence does not cover Elektron firmware, trademarks, or other third-party materials.
 
 
 outputs
