@@ -1,11 +1,11 @@
 {
  "id": "ledcolors",
- "version": "0.2",
- "title": "LED colours: themes, picker, standby show",
+ "version": "0.5",
+ "title": "LED colours: themes, picker, standby shows, per-track colours",
  "category": "Looks",
  "license": "GPL-2.0-or-later",
  "author": "made with Claude",
- "description": "Seven SETTINGS rows. LED THEME recolours the key LEDs (STOCK, PINK, SOFT, LAVENDER, OCEAN, SUNSET, CUSTOM); LED EDIT and LED RED/GREEN/BLUE set any colour family's colour (0-31), previewed on the trig keys. LED IDLE (OFF/30S/1M/2M/5M) starts a light show (LED SHOW: COMET, RAINBOW, BREATHE) when no key, knob or sound has come for that long; the first key or knob only wakes it. The settings are saved (one eMMC block the stock firmware never uses, 0x60000) and restored at power-on; the first time, the theme is PINK and LED IDLE 1M.",
+ "description": "SETTINGS gets one LED COLORS row: select it (or turn it right) to open the LED rows under it, select it again (or turn left) to close them, so the rest of SETTINGS stays short. LED THEME recolours the key LEDs (STOCK, PINK, SOFT, LAVENDER, OCEAN, SUNSET, CUSTOM); LED EDIT and LED RED/GREEN/BLUE set any colour family's colour (0-31), previewed on the trig keys. LED IDLE (OFF/30S/1M/2M/5M) starts a light show (LED SHOW: COMET, RAINBOW, BREATHE, RAIN, SCANNER, SPARKLE, WAVE, HEARTBEAT, FIREWORKS, LITESHOW) when no key, knob or sound has come for that long; the first key or knob only wakes it. The settings are saved (one eMMC block the stock firmware never uses, 0x60000) and restored at power-on; the first time, the theme is PINK and LED IDLE 1M. Works with core 4.0.1 and later. Per-track colours: TRK 1-16 COLOR in SETTINGS, or hold TRK and press LEFT/RIGHT; placed trigs take the active track's colour, and holding TRK shows every track's colour on its trig, and that view turns itself off two seconds after the last TRK key or colour change.",
  "device": "digitakt-mk1",
  "os": "1.54",
  "sources": [
@@ -30,7 +30,10 @@
   "-DTOP_LIMIT=52",
   "-DEMMC_READ_AT=0x400e2c14",
   "-DEMMC_WRITE_AT=0x400e2dfa",
-  "-DSAVE_BLOCK=0x60000"
+  "-DSAVE_BLOCK=0x60000",
+  "-DINVALIDATE_AT=0x400c9a3a",
+  "-DACTIVE_TRACK_AT=0x4197c6b4",
+  "-DSETTINGS_BUILD_AT=0x400583fc"
  ],
  "defsym": {
   "STR_CTOR": "0x4017af20"
@@ -66,7 +69,7 @@
   }
  ],
  "resources": {
-  "core": "4.1",
+  "core": "4.0",
   "names": [
    "ui:SETTINGS:LED THEME",
    "ui:SETTINGS:LED EDIT",
@@ -75,7 +78,23 @@
    "ui:SETTINGS:LED BLUE",
    "ui:SETTINGS:LED IDLE",
    "ui:SETTINGS:LED SHOW",
-   "emmc:block:0x60000"
+   "emmc:block:0x60000",
+   "ui:SETTINGS:TRK 1 COLOR",
+   "ui:SETTINGS:TRK 2 COLOR",
+   "ui:SETTINGS:TRK 3 COLOR",
+   "ui:SETTINGS:TRK 4 COLOR",
+   "ui:SETTINGS:TRK 5 COLOR",
+   "ui:SETTINGS:TRK 6 COLOR",
+   "ui:SETTINGS:TRK 7 COLOR",
+   "ui:SETTINGS:TRK 8 COLOR",
+   "ui:SETTINGS:TRK 9 COLOR",
+   "ui:SETTINGS:TRK 10 COLOR",
+   "ui:SETTINGS:TRK 11 COLOR",
+   "ui:SETTINGS:TRK 12 COLOR",
+   "ui:SETTINGS:TRK 13 COLOR",
+   "ui:SETTINGS:TRK 14 COLOR",
+   "ui:SETTINGS:TRK 15 COLOR",
+   "ui:SETTINGS:TRK 16 COLOR"
   ]
  },
  "requires": [
