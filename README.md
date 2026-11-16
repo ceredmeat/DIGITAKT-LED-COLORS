@@ -3,17 +3,17 @@
 
 A custom LED theme editor and standby light show for the **Elektron Digitakt MKI running OS 1.54**. The Elekloader mod adds theme selection, per-colour-family RGB editing, trig-key previews, and optional idle animations, with user settings saved across restarts.
 
-> **Device compatibility:** The mod has been tested in the digiemu emulator against OS 1.54. The project notes report that Elekloader verified the build. It has **not been tested on a physical Digitakt**, so hardware behavior and safety are unverified.
+> **Device compatibility:** Version 0.5 has been **tested on a physical Digitakt MKI running OS 1.54**, and earlier versions in the digiemu emulator. Firmware modding always carries risk: keep a stock OS image and a project backup.
 
 ## Features
 
-- Seven settings rows for theme, colour family, RGB channels, idle delay, and light show.
+- **New in 0.5:** all LED rows fold under one **LED COLORS** section in SETTINGS, and the TRK colour view turns itself off reliably (it could stay on after TRK + a trig).
+- **Per-track colours (0.4):** each of the 16 tracks gets its own trig colour (TRK n COLOR rows, or hold TRK and press LEFT/RIGHT); hold TRK to see every track's colour.
 - Six built-in looks: PINK, SOFT, LAVENDER, OCEAN, SUNSET, and STOCK, plus CUSTOM.
-- Eleven editable colour families, with red, green, and blue channels adjustable from 0 to 31.
-- Trig-key previews while editing.
-- COMET, RAINBOW, and BREATHE idle animations, with wake-on-first-input behavior.
+- Eleven editable colour families, with red, green, and blue channels adjustable from 0 to 31, previewed on the trig keys.
+- Ten idle light shows: COMET, RAINBOW, BREATHE, RAIN, SCANNER, SPARKLE, WAVE, HEARTBEAT, FIREWORKS and LITESHOW, with wake-on-first-input behavior.
 - Saved settings, including custom colours, restored at startup.
-- Designed for Digitakt MKI OS 1.54 and Elekloader core 4.1.
+- Digitakt MKI OS 1.54, Elekloader core 4.0.1 or later.
 
 ![Theme colour preview](themes_preview.png)
 
@@ -23,7 +23,7 @@ A custom LED theme editor and standby light show for the **Elektron Digitakt MKI
 |---|---|
 | `ledc.c`, `ledc.s` | Mod source |
 | `mod.json` | Elekloader build and patch configuration |
-| `ledcolors-0.2.elemod` | Packaged mod for Elekloader |
+| `ledcolors-0.5.elemod` | Packaged mod for Elekloader |
 | `themes_preview.png` | Approximate theme preview |
 | `LICENSE` | MIT license for this project |
 

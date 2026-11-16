@@ -43,7 +43,9 @@ typedef int32_t (*emmc_fn)(int32_t block, int32_t bytes, void *buf);   /* 0 on s
 #define EMMC_READ ((emmc_fn)EMMC_READ_AT)
 #define EMMC_WRITE ((emmc_fn)EMMC_WRITE_AT)
 
-extern void fw_invalidate(void *view);
+/* core 4.0.1 doesn't export fw_invalidate (core 4.1 does): call the firmware's own routine,
+ * invalidate(view) at 0x400c9a3a in OS 1.54 (core 4.1's FW_INVALIDATE for 1.54). */
+#define fw_invalidate ((void (*)(void *view))INVALIDATE_AT)
 extern int32_t fw_textf(void *bmp, const void *font, int32_t x, int32_t y, int32_t maxlen, const char *fmt, ...);
 extern const char fw_font5[];
 extern void fw_fillrect(void *bmp, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t colour);
@@ -117,8 +119,10 @@ static uint8_t ready;
 enum { IDLE_OFF, IDLE_30S, IDLE_1M, IDLE_2M, IDLE_5M, IDLES };
 static const char *const idle_name[IDLES] = {"OFF", "30S", "1M", "2M", "5M"};
 static const int32_t idle_ticks_for[IDLES] = {0, 30 * 30, 60 * 30, 120 * 30, 300 * 30};
-enum { SHOW_COMET, SHOW_RAINBOW, SHOW_BREATHE, SHOWS };
-static const char *const show_name[SHOWS] = {"COMET", "RAINBOW", "BREATHE"};
+enum { SHOW_COMET, SHOW_RAINBOW, SHOW_BREATHE, SHOW_RAIN, SHOW_SCANNER, SHOW_SPARKLE, SHOW_WAVE,
+       SHOW_HEARTBEAT, SHOW_FIREWORKS, SHOW_LITESHOW, SHOWS };
+static const char *const show_name[SHOWS] = {"COMET", "RAINBOW", "BREATHE", "RAIN", "SCANNER", "SPARKLE",
+                                             "WAVE", "HEARTBEAT", "FIREWORKS", "LITESHOW"};
 #ifndef DEFAULT_IDLE
 #define DEFAULT_IDLE IDLE_1M
 #endif
@@ -153,13 +157,35 @@ static const uint8_t *base(int32_t f)
     return theme == T_CUSTOM ? custom[f] : themes[theme][f];
 }
 
+/* ---- per-track colours ------------------------------------------------------------------------------
+ * Placed trigs use the RED family. Each of the 16 tracks can have its own family (0 = THEME: no change);
+ * when the active track changes, RED is rebuilt in that track's colour. While TRK is held the palette goes
+ * back to the theme and every trig shows its track's colour (the active one blinks), so each key is true.
+ * The active track is the firmware's 0x4197c6b4 (core's fw_active_track; 0-15, MIDI tracks included). */
+#define ACTIVE_TRACK (*(volatile int32_t *)ACTIVE_TRACK_AT)
+#define TRACKS 16
+static uint8_t trk_col[TRACKS];               /* 0 = THEME, 1..FAMILIES = that family */
+static int32_t cur_trk = -1;                  /* the track the palette was last built for */
+static int32_t trk_held;                      /* TRK is down */
+static int32_t trk_timeout;                   /* ticks left before the TRK colour view gives up on
+                                               * its own: a safety net for a TRK release we never
+                                               * see (another mod took it, or it came without the
+                                               * flag we look for) */
+#define TRK_TIMEOUT 60                        /* two seconds after the last TRK key, repeat or colour change */
+static void trk_view_end(void);
+static int32_t ov = -1;
+static int32_t trk_frames;                    /* LED frames while TRK is held: the blink */                       /* the family RED is shown as; -1 = the theme's red */
+
 static void rebuild(uint8_t *table, const uint8_t *stock)
 {
     for (int32_t v = 0; v < 3; v++)
         for (int32_t e = 0; e < ENTRIES; e++) {
             const uint8_t *s = stock + v * VARIANT + 3 * e;
             uint8_t *d = table + v * VARIANT + 3 * e;
-            if (theme == T_STOCK || family[e] == NONE) {
+            int32_t fam = family[e];
+            if (fam == F_RED && ov >= 0)
+                fam = ov;                    /* the active track's colour */
+            else if (theme == T_STOCK || fam == NONE) {
                 d[0] = s[0]; d[1] = s[1]; d[2] = s[2];
                 continue;
             }
@@ -169,7 +195,7 @@ static void rebuild(uint8_t *table, const uint8_t *stock)
             if (k > 31) k = 31;
             /* The panel's PWM is exponential (each level ~24 % brighter), so dimming is a subtraction:
              * taking the same number of levels off every channel keeps their ratios, and so the hue. */
-            const uint8_t *b = base(family[e]);
+            const uint8_t *b = base(fam);
             int32_t big = 0, top = 0;
             for (int32_t c = 0; c < 3; c++) {
                 if (b[c] > b[big]) big = c;
@@ -186,6 +212,9 @@ static void rebuild(uint8_t *table, const uint8_t *stock)
 
 static void apply(void)
 {
+    ov = -1;
+    if (!trk_held && cur_trk >= 0 && cur_trk < TRACKS && trk_col[cur_trk])
+        ov = trk_col[cur_trk] - 1;
     rebuild(TAB_A, stock_a);
     rebuild(TAB_B, stock_b);
     int32_t i = GET_INTENSITY() & 0xff;
@@ -219,11 +248,24 @@ static uint32_t checksum(const uint8_t *p, int32_t n)
     return s;
 }
 
+#define TRK_MAGIC 0x4c54524bu               /* "LTRK": the per-track colours, at +256 in the block */
+struct trk_save { uint32_t magic; uint8_t col[TRACKS]; uint32_t sum; };
+
+static void load_tracks(void)
+{
+    struct trk_save *r = (struct trk_save *)(block + 256);
+    if (r->magic != TRK_MAGIC || r->sum != checksum(block + 256, (int32_t)((uint8_t *)&r->sum - (block + 256))))
+        return;
+    for (int32_t i = 0; i < TRACKS; i++)
+        trk_col[i] = r->col[i] <= FAMILIES ? r->col[i] : 0;
+}
+
 static void load(void)
 {
     for (int32_t i = 0; i < 512; i++) block[i] = 0;
     if (EMMC_READ(SAVE_BLOCK, 512, block) != 0)
         return;
+    load_tracks();
     struct save *s = (struct save *)block;
     if (s->magic != SAVE_MAGIC || s->version != SAVE_VERSION
         || s->sum != checksum(block, (int32_t)((uint8_t *)&s->sum - block)))
@@ -251,13 +293,20 @@ static void save(void)
         for (int32_t c = 0; c < 3; c++)
             s->custom[f][c] = custom[f][c];
     s->sum = checksum(block, (int32_t)((uint8_t *)&s->sum - block));
+    struct trk_save *r = (struct trk_save *)(block + 256);
+    r->magic = TRK_MAGIC;
+    for (int32_t i = 0; i < TRACKS; i++)
+        r->col[i] = trk_col[i];
+    r->sum = checksum(block + 256, (int32_t)((uint8_t *)&r->sum - (block + 256)));
     EMMC_WRITE(SAVE_BLOCK, 512, block);
 }
 
 /* ---- ev_tick: init once the LED task is up, and the preview's timer --------------------------------- */
+void ledc_rebuild_tick(void);
 void ledc_tick(void *ctrl)
 {
     (void)ctrl;
+    ledc_rebuild_tick();
     if (!ready) {
         if (++ticks < 60)                     /* two seconds after the UI starts */
             return;
@@ -273,8 +322,21 @@ void ledc_tick(void *ctrl)
     }
     if (preview > 0)
         preview--;
+    if (trk_held && trk_timeout > 0 && --trk_timeout == 0)
+        trk_view_end();                       /* no TRK news for two seconds: show the pattern again */
     if (save_wait > 0 && --save_wait == 0)
         save();
+    {
+        int32_t a = ACTIVE_TRACK;
+        if (a >= 0 && a < TRACKS && a != cur_trk) {
+            if (trk_held)
+                trk_timeout = TRK_TIMEOUT;    /* TRK + trig picked a track: keep the view a little */
+            int32_t was = cur_trk >= 0 ? trk_col[cur_trk] : 0;
+            cur_trk = a;
+            if (was || trk_col[a])            /* resend only when the colour really changes */
+                apply();
+        }
+    }
     /* standby: any sound counts as activity, so the show never covers a playing pattern */
     int32_t sound = 0;
     for (int32_t t = 0; t < 8; t++)
@@ -303,11 +365,55 @@ static int32_t wake(void)
     return was;
 }
 
+#define K_TRK   2                            /* key-event numbers (see multitrig REPORT) */
+#define K_LEFT  16
+#define K_RIGHT 17
+#define E_REPEAT 0x08
+
+static void trk_view_end(void)
+{
+    trk_held = 0;
+    trk_timeout = 0;
+    if (cur_trk >= 0 && trk_col[cur_trk])
+        apply();                              /* back to the track's palette */
+}
+
+static void step_track_colour(int32_t trk, int32_t d)
+{
+    if (trk < 0 || trk >= TRACKS)
+        return;
+    trk_col[trk] = (uint8_t)((trk_col[trk] + d + FAMILIES + 1) % (FAMILIES + 1));
+    apply();
+    save_wait = 60;
+}
+
 int32_t ledc_key(void *brain, void *ev)
 {
     (void)brain;
     int32_t key = *(int32_t *)((char *)ev + E_KEY);
     int32_t flags = *(int32_t *)((char *)ev + E_FLAGS);
+    if (ready && key == K_TRK) {
+        /* the firmware's own "is it down" is bit 0 of the flags (0x400c33fc / 0x400c3418): a release
+         * has it clear. 0x10 is kept as a release too, as before. */
+        int32_t down = (flags & 1) && !(flags & E_RELEASE);
+        if (down) {
+            trk_timeout = TRK_TIMEOUT;        /* a press or a repeat: TRK really is held */
+            if (!trk_held) {
+                trk_held = 1;
+                if (cur_trk >= 0 && trk_col[cur_trk])
+                    apply();                  /* the theme palette while held */
+            }
+        } else if (trk_held) {
+            trk_view_end();
+        }
+    }
+    if (ready && trk_held && !showing && (key == K_LEFT || key == K_RIGHT)) {
+        if ((flags & 1) && !(flags & E_RELEASE)) {    /* TRK + LEFT/RIGHT: the active track's colour */
+            step_track_colour(cur_trk, key == K_RIGHT ? 1 : -1);
+            trk_timeout = TRK_TIMEOUT;
+        }
+        return 1;                             /* taken, press, repeat and release */
+    }
     if (key == swallow) {                     /* the waking key's repeat and release */
         if (flags & E_RELEASE)
             swallow = -1;
@@ -328,15 +434,144 @@ int32_t ledc_enc(void *brain, void *ev)
     return wake();
 }
 
+/* ---- the newer shows: a little state per trig, moved on once per step (10 a second) ---------------- */
+#define DARK 9                                /* an age past every ramp: the trig is off */
+static uint8_t age[16];                       /* steps since this trig lit; DARK = off */
+static uint8_t fam_of[16];                    /* the family each trig lit in */
+static int32_t last_step = -1, last_show = -1;
+static uint32_t seed = 0x2545f491u;
+static int32_t fw_centre, fw_fam, fw_t;       /* fireworks: where, which colour, steps since launch */
+
+static uint32_t rnd(uint32_t n)               /* 0..n-1 (xorshift) */
+{
+    seed ^= seed << 13;
+    seed ^= seed >> 17;
+    seed ^= seed << 5;
+    return seed % n;
+}
+
+static int32_t absi(int32_t v) { return v < 0 ? -v : v; }
+
+/* a family's colour `dim` steps down, spreading its ramp over 0..4 so short ramps still fade */
+static int32_t fade(int32_t f, int32_t dim)
+{
+    int32_t n = ramp_len(f);
+    if (dim < 0) dim = 0;
+    if (dim > 4) return 2;
+    return shade(f, dim * n / 5);
+}
+
+static void light(int32_t s, int32_t f) { age[s] = 0; fam_of[s] = (uint8_t)f; }
+
+/* LITESHOW, after the Hydrasynth's "Lite Show": white, orange and red, moving through five
+ * 4-second phases (sweep, twinkle, centre wipe, fill and drain, alternating flips), while the
+ * other keys flash in alternating rhythmic pulses. */
+static const uint8_t lite_fams[3] = {F_WHITE, F_ORANGE, F_RED};
+#define LITE_PHASE_STEPS 40
+static int32_t lite_phase(int32_t step) { return (step / LITE_PHASE_STEPS) % 5; }
+
+static int32_t lite_colour(int32_t s, int32_t step)
+{
+    int32_t t = step % LITE_PHASE_STEPS;
+    switch (lite_phase(step)) {
+    case 0: {                                 /* sweep out and back, white with an orange tail */
+        int32_t p = t % 20, head = p < 10 ? p * 15 / 9 : (19 - p) * 15 / 9;
+        int32_t behind = p < 10 ? head - s : s - head;
+        if (behind == 0) return fade(F_WHITE, 0);
+        return behind > 0 && behind <= 4 ? fade(F_ORANGE, behind) : 2;
+    }
+    case 1:                                   /* twinkle: drops lit in new_step */
+        return age[s] < DARK ? fade(fam_of[s], age[s] * 2) : 2;
+    case 2: {                                 /* out from the middle and back in, twice */
+        int32_t p = t % 20, r = p < 10 ? p : 19 - p;       /* 0..9 */
+        int32_t d = absi(2 * s - 15) / 2;                  /* 0 in the middle .. 7 at the ends */
+        if (d > r) return 2;
+        return d == r ? fade(F_WHITE, 0) : fade(F_ORANGE, (r - d) / 2);
+    }
+    case 3: {                                 /* fill up from trig 1, then drain */
+        int32_t lvl = t < 20 ? t * 16 / 19 : (39 - t) * 16 / 19;   /* 0..16 trigs lit */
+        if (s >= lvl) return 2;
+        return s == lvl - 1 ? fade(F_WHITE, 0) : fade(s < 8 ? F_RED : F_ORANGE, 1);
+    }
+    default:                                  /* alternating flips: odd and even trigs swap */
+        return ((s + t / 4) & 1) ? fade(lite_fams[(t / 8) % 3], 0) : 2;
+    }
+}
+
+static void new_step(int32_t step)
+{
+    if (show != last_show) {                  /* a fresh start for the show */
+        for (int32_t s = 0; s < 16; s++) age[s] = DARK;
+        fw_t = 99;
+        last_show = show;
+    }
+    seed += (uint32_t)step * 2654435761u;
+    for (int32_t s = 0; s < 16; s++)
+        if (age[s] < DARK) age[s]++;
+    if (show == SHOW_RAIN) {
+        if (rnd(10) < 4)                      /* a drop now and then: mostly blue, sometimes white */
+            light((int32_t)rnd(16), rnd(5) ? F_BLUE : F_WHITE);
+    } else if (show == SHOW_SPARKLE) {
+        for (int32_t k = rnd(3); k > 0; k--)  /* quick twinkles in any colour of the theme */
+            light((int32_t)rnd(16), show_fams[rnd(SHOW_FAMS)]);
+    } else if (show == SHOW_LITESHOW) {
+        if (lite_phase(step) == 1)            /* the twinkle phase: white, orange and red drops */
+            for (int32_t k = 1 + rnd(2); k > 0; k--)
+                light((int32_t)rnd(16), lite_fams[rnd(3)]);
+    } else if (show == SHOW_FIREWORKS) {
+        if (++fw_t > 16) {                    /* launch the next burst */
+            fw_t = 0;
+            fw_centre = (int32_t)rnd(16);
+            fw_fam = show_fams[rnd(SHOW_FAMS)];
+        }
+        for (int32_t s = 0; s < 16; s++)      /* the ring moves out one trig a step */
+            if (fw_t <= 8 && absi(s - fw_centre) == fw_t)
+                light(s, fw_fam);
+    }
+}
+
+static int32_t newer_colour(int32_t s, int32_t step)
+{
+    switch (show) {
+    case SHOW_LITESHOW:
+        return lite_colour(s, step);
+    case SHOW_SCANNER: {                      /* back and forth, one pass every 1.5 s, with a tail */
+        int32_t p = step % 30, head = p < 15 ? p : 30 - p;
+        int32_t f = show_fams[(step / 30) % SHOW_FAMS];
+        int32_t behind = p < 15 ? head - s : s - head;
+        return behind >= 0 && behind <= 4 ? fade(f, behind) : 2;
+    }
+    case SHOW_WAVE: {                         /* a soft brightness wave rolling right */
+        int32_t f = show_fams[(step / 40) % SHOW_FAMS];
+        int32_t ph = (s * 2 - step) & 15;     /* 0-15 */
+        return fade(f, absi(ph - 8) / 2);
+    }
+    case SHOW_HEARTBEAT: {                    /* lub-dub, then rest; spreading out from the middle */
+        static const int8_t beat[12] = {0, 2, 4, 0, 1, 3, 4, 5, 5, 5, 5, 5};
+        int32_t d = absi(2 * s - 15) / 4;     /* 0 in the middle .. 3 at the ends */
+        int32_t lvl = beat[((step - d) % 12 + 12) % 12];
+        return lvl > 4 ? 2 : fade((step / 120) % 2 ? F_MAGENTA : F_RED, lvl);
+    }
+    default:                                  /* RAIN, SPARKLE, FIREWORKS: lit trigs fading out */
+        return age[s] < DARK ? fade(fam_of[s], show == SHOW_SPARKLE ? age[s] * 2 : age[s]) : 2;
+    }
+}
+
 static void show_frame(uint32_t mgr)
 {
     int32_t step = anim / 3;                  /* 10 steps a second */
     int32_t trig_led[16];
+    if (step != last_step) {
+        new_step(step);
+        last_step = step;
+    }
     for (int32_t s = 0; s < 16; s++)
         trig_led[s] = TRIG_LED(s);
     for (int32_t s = 0; s < 16; s++) {
         int32_t colour;
-        if (show == SHOW_COMET) {
+        if (show > SHOW_BREATHE) {
+            colour = newer_colour(s, step);
+        } else if (show == SHOW_COMET) {
             int32_t f = show_fams[(step / 16) % SHOW_FAMS];
             int32_t behind = (step % 16) - s;         /* 0 = the head, 1.. = the tail */
             colour = behind >= 0 ? shade(f, behind) : 2;
@@ -358,8 +593,15 @@ static void show_frame(uint32_t mgr)
         int32_t trig = 0;
         for (int32_t s = 0; s < 16; s++)
             if (trig_led[s] == led) trig = 1;
-        if (!trig)
+        if (trig)
+            continue;
+        if (show == SHOW_LITESHOW) {          /* two groups flash in turn, 3 beats a second */
+            int32_t beat = step / 3, on = ((led + beat) & 1) == 0;
+            int32_t lf = (beat / 4) & 1 ? F_RED : F_ORANGE;
+            LED_SET(mgr, led, 2, on ? fade(lf, 0) : fade(lf, 3));
+        } else {
             LED_SET(mgr, led, 2, shade(f, dim < 0 ? 0 : dim));
+        }
     }
 }
 
@@ -368,6 +610,14 @@ void ledc_frame(void *arg)
 {
     if (ready && showing) {
         show_frame(LED_MGR());
+    } else if (ready && trk_held) {
+        uint32_t mgr = LED_MGR();
+        int32_t blink = (++trk_frames / 8) & 1;
+        for (int32_t s = 0; s < TRACKS; s++) {
+            int32_t f = trk_col[s] ? trk_col[s] - 1 : F_RED;
+            int32_t colour = (s == cur_trk && blink) ? 2 : rep[f];
+            LED_SET(mgr, TRIG_LED(s), 2, colour);
+        }
     } else if (ready && preview > 0) {
         uint32_t mgr = LED_MGR();
         for (int32_t step = 0; step < 16; step++) {
@@ -383,7 +633,7 @@ void ledc_frame(void *arg)
 }
 
 /* ---- SETTINGS rows ---------------------------------------------------------------------------------- */
-enum { ROW_THEME, ROW_EDIT, ROW_R, ROW_G, ROW_B, ROW_IDLE, ROW_SHOW };
+enum { ROW_THEME, ROW_EDIT, ROW_R, ROW_G, ROW_B, ROW_IDLE, ROW_SHOW, ROW_T1 };   /* ROW_T1 + n: track n+1 */
 
 static void redraw(void **payload)
 {
@@ -395,6 +645,10 @@ static void step_row(int32_t row, int32_t delta)
     if (!ready || !delta)
         return;
     int32_t d = delta > 0 ? 1 : -1;
+    if (row >= ROW_T1) {                      /* TRK n COLOUR */
+        step_track_colour(row - ROW_T1, d);
+        return;
+    }
     switch (row) {
     case ROW_THEME:
         set_theme((theme + d + THEMES) % THEMES);
@@ -457,6 +711,8 @@ static void draw_row(int32_t row, void *bmp, int32_t x, int32_t y)
         text = idle_name[idle_mode];
     else if (row == ROW_SHOW)
         text = show_name[show];
+    else if (row >= ROW_T1)
+        text = trk_col[row - ROW_T1] ? fam_name[trk_col[row - ROW_T1] - 1] : "THEME";
     else {
         put_num(num, base(edit)[row - ROW_R]);
         text = num;
@@ -482,14 +738,73 @@ ROW_FNS(g, ROW_G)
 ROW_FNS(b, ROW_B)
 ROW_FNS(idle, ROW_IDLE)
 ROW_FNS(show, ROW_SHOW)
+ROW_FNS(t1, ROW_T1 + 0)   ROW_FNS(t2, ROW_T1 + 1)   ROW_FNS(t3, ROW_T1 + 2)   ROW_FNS(t4, ROW_T1 + 3)
+ROW_FNS(t5, ROW_T1 + 4)   ROW_FNS(t6, ROW_T1 + 5)   ROW_FNS(t7, ROW_T1 + 6)   ROW_FNS(t8, ROW_T1 + 7)
+ROW_FNS(t9, ROW_T1 + 8)   ROW_FNS(t10, ROW_T1 + 9)  ROW_FNS(t11, ROW_T1 + 10) ROW_FNS(t12, ROW_T1 + 11)
+ROW_FNS(t13, ROW_T1 + 12) ROW_FNS(t14, ROW_T1 + 13) ROW_FNS(t15, ROW_T1 + 14) ROW_FNS(t16, ROW_T1 + 15)
 
 /* The rows, in ledc.s (their labels return a std::string, which needs assembly). */
 extern const uint32_t ledc_row_theme[], ledc_row_edit[], ledc_row_r[], ledc_row_g[], ledc_row_b[],
     ledc_row_idle[], ledc_row_show[];
+extern const uint32_t ledc_row_t1[], ledc_row_t2[], ledc_row_t3[], ledc_row_t4[], ledc_row_t5[], ledc_row_t6[],
+    ledc_row_t7[], ledc_row_t8[], ledc_row_t9[], ledc_row_t10[], ledc_row_t11[], ledc_row_t12[], ledc_row_t13[],
+    ledc_row_t14[], ledc_row_t15[], ledc_row_t16[];
 extern void core_additem(void *menu, const void *row);
+
+/* LED COLORS: one row in SETTINGS that opens and closes the rest, so they don't make the list long.
+ * Selecting it (or turning it) flips `expanded`; on the next UI tick the SETTINGS list is built again
+ * by the firmware's own builder (0x400583fc, which the stock OS also calls to rebuild the list when a
+ * setting changes what's in it). The builder keeps the selected row, so LED COLORS stays selected.
+ * It runs from the tick, not from the row's own callback, because a rebuild frees the row that's
+ * calling. */
+typedef void (*build_fn)(void *menu);
+#define SETTINGS_BUILD ((build_fn)SETTINGS_BUILD_AT)
+static int32_t expanded;                      /* the LED rows are showing */
+static void *rebuild_menu;                    /* the SETTINGS menu to build again on the next tick */
+
+static void toggle_section(void **payload)
+{
+    expanded = !expanded;
+    rebuild_menu = *payload;
+}
+
+void ledc_hdr_select(void **payload, void *item) { (void)item; toggle_section(payload); }
+void ledc_hdr_change(void **payload, void *item, int32_t delta)
+{
+    (void)item;
+    if ((delta > 0) != expanded)              /* right opens, left closes */
+        toggle_section(payload);
+}
+void ledc_hdr_draw(void *payload, void *item, void *bmp, int32_t x, int32_t y)
+{
+    (void)payload; (void)item;
+    const char *text = expanded ? "OPEN" : "CLOSED";
+    int32_t n = 0;
+    while (text[n]) n++;
+    if (y + YOFF + BOX_UP > TOP_LIMIT)
+        return;
+    int32_t tx = x + XOFF - TEXT_ADV * n;
+    fw_fillrect(bmp, tx - 2, y + YOFF - BOX_DOWN, x + XOFF, y + YOFF + BOX_UP, 0);
+    fw_textf(bmp, fw_font5, tx, y + YOFF, 16, "%s", text);
+}
+
+extern const uint32_t ledc_row_hdr[];
+
+void ledc_rebuild_tick(void)
+{
+    void *m = rebuild_menu;
+    if (!m)
+        return;
+    rebuild_menu = 0;
+    SETTINGS_BUILD(m);
+    fw_invalidate((char *)m + 0x38);
+}
 
 void ledc_settings(void *menu)
 {
+    core_additem(menu, ledc_row_hdr);
+    if (!expanded)
+        return;
     core_additem(menu, ledc_row_theme);
     core_additem(menu, ledc_row_edit);
     core_additem(menu, ledc_row_r);
@@ -497,4 +812,9 @@ void ledc_settings(void *menu)
     core_additem(menu, ledc_row_b);
     core_additem(menu, ledc_row_idle);
     core_additem(menu, ledc_row_show);
+    static const uint32_t *const trk_rows[TRACKS] = {ledc_row_t1, ledc_row_t2, ledc_row_t3, ledc_row_t4,
+        ledc_row_t5, ledc_row_t6, ledc_row_t7, ledc_row_t8, ledc_row_t9, ledc_row_t10, ledc_row_t11,
+        ledc_row_t12, ledc_row_t13, ledc_row_t14, ledc_row_t15, ledc_row_t16};
+    for (int32_t i = 0; i < TRACKS; i++)
+        core_additem(menu, trk_rows[i]);
 }
