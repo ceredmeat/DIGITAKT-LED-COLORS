@@ -1,0 +1,20 @@
+{
+ "id": "modsettings",
+ "version": "0.1",
+ "title": "MOD SETTINGS section",
+ "category": "Workflow",
+ "license": "GPL-2.0-or-later",
+ "author": "Cere, made with Claude",
+ "description": "One MOD SETTINGS row in SETTINGS that opens and closes the rows of Deja Vu, Velocity Humanise and Euclid Accents, so SETTINGS stays short: select it (or turn right) to show them, again (or turn left) to hide them. Starts closed. Without this mod those rows simply show as before.",
+ "device": "digitakt-mk1",
+ "os": "1.54",
+ "sources": ["modsettings.c", "modsettings.s"],
+ "cflags": ["-DSETTINGS_BUILD_AT=0x400583fc"],
+ "defsym": {"STR_CTOR": "0x4017af20"},
+ "subscribe": [
+  {"event": "ev_settings", "fn": "ms_settings", "order": 74},
+  {"event": "ev_tick", "fn": "ms_tick", "order": 81}
+ ],
+ "resources": {"core": "4.1", "names": ["ui:SETTINGS:MOD SETTINGS"]},
+ "requires": ["core"]
+}
