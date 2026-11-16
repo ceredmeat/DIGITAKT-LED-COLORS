@@ -14,7 +14,6 @@ A custom LED theme editor and standby light show for the **Elektron Digitakt MKI
 - Ten idle light shows: COMET, RAINBOW, BREATHE, RAIN, SCANNER, SPARKLE, WAVE, HEARTBEAT, FIREWORKS and LITESHOW, with wake-on-first-input behavior.
 - Saved settings, including custom colours, restored at startup.
 - Digitakt MKI OS 1.54, Elekloader core 4.0.1 or later.
-- Comes with **MOD SETTINGS** (`mod-settings/`), an optional companion that folds other mods' SETTINGS rows under one row. With LED colours alone it isn't needed; see its README.
 
 ![Theme colour preview](themes_preview.png)
 
@@ -25,7 +24,6 @@ A custom LED theme editor and standby light show for the **Elektron Digitakt MKI
 | `ledc.c`, `ledc.s` | Mod source |
 | `mod.json` | Elekloader build and patch configuration |
 | `ledcolors-0.5.elemod` | Packaged mod for Elekloader |
-| `../mod-settings/` | MOD SETTINGS, an optional companion mod (see its README) |
 | `themes_preview.png` | Approximate theme preview |
 | `LICENSE` | MIT license for this project |
 
