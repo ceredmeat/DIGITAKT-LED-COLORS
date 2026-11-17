@@ -129,6 +129,22 @@ static const char *const show_name[SHOWS] = {"COMET", "RAINBOW", "BREATHE", "RAI
 static int32_t idle_mode = DEFAULT_IDLE, show = SHOW_COMET;
 static int32_t idle;                          /* ticks with no key, knob or sound */
 static int32_t showing;                       /* the show is on */
+/* ---- 0.6: LED FX, the effects while you work: HEAT (while playing, each trig key glows by how much its
+ * step plays, cool blue to white hot), RIPPLE (a press sends a ring of light out along the keys), BREATH
+ * (stopped and untouched for 5 s, the trig keys breathe in the active track's colour). */
+enum { FX_HEAT = 1, FX_RIPPLE = 2, FX_BREATH = 4 };
+#define FX_CHOICES 7
+static const uint8_t fx_bits[FX_CHOICES] = { 0, FX_HEAT, FX_RIPPLE, FX_BREATH, FX_HEAT | FX_RIPPLE,
+                                             FX_RIPPLE | FX_BREATH, FX_HEAT | FX_RIPPLE | FX_BREATH };
+static const char *const fx_name[FX_CHOICES] = { "OFF", "HEAT", "RIPPLE", "BREATH", "HEAT+RIP", "RIP+BRTH", "ALL" };
+static int32_t fx = FX_CHOICES - 1;           /* ALL to start */
+static volatile int32_t heat[16];             /* the fires on each of the 16 keys' steps, x velocity */
+static volatile uint32_t fx_ticks, last_fire; /* UI ticks; the tick of the last fire */
+static volatile int32_t play_step = -1;       /* the active track's step, as it plays */
+static int32_t quiet;                         /* ticks with no key or knob (0.7: sound no longer counts) */
+static int32_t rec_on, rec_live, rec_down, play_down;   /* 0.7: recording, from the RECORD key (9) */
+#define RIPPLES 4
+static int32_t rip_at[RIPPLES], rip_from[RIPPLES] = { -1, -1, -1, -1 }, rip_next;
 static int32_t anim;                          /* ticks since the show started */
 static int32_t swallow = -1;                  /* the key that woke the unit: its events are taken */
 
@@ -167,6 +183,7 @@ static const uint8_t *base(int32_t f)
 static uint8_t trk_col[TRACKS];               /* 0 = THEME, 1..FAMILIES = that family */
 static int32_t cur_trk = -1;                  /* the track the palette was last built for */
 static int32_t trk_held;                      /* TRK is down */
+static int32_t func_down;                     /* FUNC is down (0.7: TRK + FUNC is quick mute: its green / red show) */
 static int32_t trk_timeout;                   /* ticks left before the TRK colour view gives up on
                                                * its own: a safety net for a TRK release we never
                                                * see (another mod took it, or it came without the
@@ -213,7 +230,9 @@ static void rebuild(uint8_t *table, const uint8_t *stock)
 static void apply(void)
 {
     ov = -1;
-    if (!trk_held && cur_trk >= 0 && cur_trk < TRACKS && trk_col[cur_trk])
+    /* 0.9: while RED is being edited (its preview showing), the track's colour steps aside so the edit shows */
+    int32_t editing_red = preview > 0 && !preview_all && edit == F_RED;
+    if (!trk_held && !editing_red && cur_trk >= 0 && cur_trk < TRACKS && trk_col[cur_trk])
         ov = trk_col[cur_trk] - 1;
     rebuild(TAB_A, stock_a);
     rebuild(TAB_B, stock_b);
@@ -274,6 +293,7 @@ static void load(void)
     if (s->idle_mode < IDLES) idle_mode = s->idle_mode;
     if (s->show < SHOWS) show = s->show;
     if (s->edit < FAMILIES) edit = s->edit;
+    if (s->pad[0] >= 1 && s->pad[0] <= FX_CHOICES) fx = s->pad[0] - 1;
     for (int32_t f = 0; f < FAMILIES; f++)
         for (int32_t c = 0; c < 3; c++)
             custom[f][c] = s->custom[f][c] > 31 ? 31 : s->custom[f][c];
@@ -289,6 +309,7 @@ static void save(void)
     s->idle_mode = (uint8_t)idle_mode;
     s->show = (uint8_t)show;
     s->edit = (uint8_t)edit;
+    s->pad[0] = (uint8_t)(fx + 1);
     for (int32_t f = 0; f < FAMILIES; f++)
         for (int32_t c = 0; c < 3; c++)
             s->custom[f][c] = custom[f][c];
@@ -320,8 +341,8 @@ void ledc_tick(void *ctrl)
         set_theme(theme);
         return;
     }
-    if (preview > 0)
-        preview--;
+    if (preview > 0 && --preview == 0 && edit == F_RED && cur_trk >= 0 && trk_col[cur_trk])
+        apply();                              /* the red edit's preview is over: the track's colour again */
     if (trk_held && trk_timeout > 0 && --trk_timeout == 0)
         trk_view_end();                       /* no TRK news for two seconds: show the pattern again */
     if (save_wait > 0 && --save_wait == 0)
@@ -342,6 +363,12 @@ void ledc_tick(void *ctrl)
     for (int32_t t = 0; t < 8; t++)
         if (fw_amp_env[3 * t + 1])
             sound = 1;
+    fx_ticks++;
+    for (int32_t k = 0; k < 16; k++) {        /* the heat cools, about two seconds */
+        int32_t h = heat[k];
+        if (h > 0) heat[k] = h - (h >> 6) - 1;
+    }
+    quiet++;
     if (sound) {
         idle = 0;
         showing = 0;
@@ -361,10 +388,15 @@ static int32_t wake(void)
 {
     int32_t was = showing;
     idle = 0;
+    quiet = 0;
     showing = 0;
     return was;
 }
 
+#define K_FUNC  1
+#define K_REC   9                            /* measured by digiemu (devices/digitakt.toml) */
+#define K_PLAY  10
+#define K_STOP  11
 #define K_TRK   2                            /* key-event numbers (see multitrig REPORT) */
 #define K_LEFT  16
 #define K_RIGHT 17
@@ -392,6 +424,25 @@ int32_t ledc_key(void *brain, void *ev)
     (void)brain;
     int32_t key = *(int32_t *)((char *)ev + E_KEY);
     int32_t flags = *(int32_t *)((char *)ev + E_FLAGS);
+    if ((key == K_REC || key == K_PLAY || key == K_STOP) && !(flags & E_REPEAT)) {
+        int32_t dn = (flags & 1) && !(flags & E_RELEASE);
+        if (key == K_REC) {
+            rec_down = dn;
+            if (dn && !(flags & 2)) {             /* RECORD: grid recording on / off (FUNC + RECORD is copy) */
+                if (play_down) { rec_on = 1; rec_live = 1; }
+                else { rec_on = !rec_on; rec_live = 0; }
+            }
+        } else if (key == K_PLAY) {
+            play_down = dn;
+            if (dn && rec_down) { rec_on = 1; rec_live = 1; }   /* RECORD + PLAY: live recording */
+        } else if (dn && rec_live) {          /* STOP ends live recording */
+            rec_on = 0; rec_live = 0;
+        }
+    }
+    if (key == K_FUNC) {                      /* quick mute: TRK + FUNC; FUNC news keeps the TRK view alive */
+        func_down = (flags & 1) && !(flags & E_RELEASE);
+        if (trk_held) trk_timeout = TRK_TIMEOUT;
+    }
     if (ready && key == K_TRK) {
         /* the firmware's own "is it down" is bit 0 of the flags (0x400c33fc / 0x400c3418): a release
          * has it clear. 0x10 is kept as a release too, as before. */
@@ -421,6 +472,11 @@ int32_t ledc_key(void *brain, void *ev)
     }
     if (flags & E_RELEASE)                    /* only a press wakes: a release is the end of a press */
         return 0;
+    if (ready && !showing && !(flags & E_REPEAT) && key >= 24 && key <= 39 && (fx_bits[fx] & FX_RIPPLE)) {
+        rip_from[rip_next] = key - 24;        /* a ripple from this key */
+        rip_at[rip_next] = (int32_t)fx_ticks;
+        rip_next = (rip_next + 1) % RIPPLES;
+    }
     if (wake()) {
         swallow = key;
         return 1;
@@ -605,12 +661,92 @@ static void show_frame(uint32_t mgr)
     }
 }
 
+/* ---- LED FX: set only the keys an effect lights; the stock view fills in the rest ------------------- */
+static const uint8_t heat_fams[6] = { F_BLUE, F_LILAC, F_MAGENTA, F_RED, F_ORANGE, F_YELLOW };
+static int32_t playing_now(void) { return fx_ticks - last_fire < 60; }
+
+/* 0.8: HEAT follows the DJ filter (djfilter 0.6's knobs, if it is in the build): what it cuts at the low end
+ * (a high-pass) darkens the cool steps, at the high end (a low-pass) the hot ones, by as much as it cuts. */
+extern volatile int8_t djfilter_kv[] __attribute__((weak));
+static void dj_cut(int32_t *lo, int32_t *hi)
+{
+    *lo = *hi = 0;
+    if (!djfilter_kv) return;
+    int32_t f = djfilter_kv[0], type = djfilter_kv[2], mix = djfilter_kv[7];
+    if (type <= 1) { if (f < 64) *hi = (64 - f) * 2; else *lo = (f - 64) * 2; }   /* DJ, DJ4 */
+    else if (type <= 3) *hi = 127 - f;                                           /* LP, LP4 */
+    else if (type <= 5) *lo = f;                                                 /* HP, HP4 */
+    else if (type == 6) { *lo = f / 2; *hi = (127 - f) / 2; }                   /* BP */
+    *lo = *lo * mix / 127; *hi = *hi * mix / 127;
+}
+
+static void fx_frame(uint32_t mgr)
+{
+    int32_t bits = fx_bits[fx], now = (int32_t)fx_ticks, playing = playing_now();
+    int32_t lit[16];
+    for (int32_t s = 0; s < 16; s++) lit[s] = -1;
+    /* RIPPLE: a ring two keys wide moving out at 15 keys a second, dimmer as it spreads */
+    if (bits & FX_RIPPLE)
+        for (int32_t r = 0; r < RIPPLES; r++) {
+            if (rip_from[r] < 0) continue;
+            int32_t radius = (now - rip_at[r]) / 2;
+            if (radius > 16) { rip_from[r] = -1; continue; }
+            int32_t f = show_fams[rip_from[r] % SHOW_FAMS];
+            for (int32_t s = 0; s < 16; s++) {
+                int32_t d = s - rip_from[r]; if (d < 0) d = -d;
+                if (d == radius || d == radius - 1) {
+                    int32_t c = shade(f, radius / 4 + (d != radius));
+                    if (c != 2 && lit[s] < 0) lit[s] = c;
+                }
+            }
+        }
+    /* HEAT: while playing; the active track's playhead in white */
+    if ((bits & FX_HEAT) && playing && !rec_on) {     /* 0.7: not while recording: the trigs show */
+        int32_t lo, hi;
+        dj_cut(&lo, &hi);
+        for (int32_t s = 0; s < 16; s++) {
+            if (lit[s] >= 0) continue;
+            if (s == (play_step & 15) && play_step >= 0) { lit[s] = shade(F_WHITE, 1); continue; }
+            int32_t lvl = heat[s] / 48, top = lvl > 6;
+            if (top) lvl = 6;
+            if (lvl > 0 && (lvl * 127 <= lo * 6 || lvl * 127 > (127 - hi) * 6)) lvl = 0;   /* the DJ filter cut it */
+            lit[s] = lvl <= 0 ? 2 : shade(heat_fams[lvl - 1], top ? 0 : 1);
+        }
+    }
+    /* BREATH: stopped and untouched for 5 s; a breath every 4 s in the active track's colour */
+    if ((bits & FX_BREATH) && !playing && quiet > 150) {
+        int32_t f = cur_trk >= 0 && trk_col[cur_trk] ? trk_col[cur_trk] - 1 : F_RED;
+        int32_t n = ramp_len(f), ph = (now / 2) % 46, lv = ph < 23 ? ph : 45 - ph;   /* 0-22: in, then out */
+        int32_t c = lv < 3 ? 2 : shade(f, (n - 1) - (lv - 3) * n / 20);         /* off, then up to the full colour */
+        if (c == 2 && lv >= 3) c = shade(f, n - 1);
+        for (int32_t s = 0; s < 16; s++) if (lit[s] < 0) lit[s] = c;
+    }
+    for (int32_t s = 0; s < 16; s++)
+        if (lit[s] >= 0) LED_SET(mgr, TRIG_LED(s), 2, lit[s]);
+}
+
+/* ev_fire_vel (seq-events, interrupt level): a step plays: its key warms */
+void ledc_fire(int32_t track, int32_t step, int32_t *vel)
+{
+    (void)track;
+    if (step < 0) return;
+    int32_t h = heat[step & 15] + (vel ? *vel : 100);
+    heat[step & 15] = h > 4000 ? 4000 : h;
+    last_fire = fx_ticks;
+}
+/* ev_gen_trig (seq-events): every step of every track: the active track's playhead */
+void ledc_step(int32_t track, int32_t step, int32_t first, uint32_t *trig)
+{
+    (void)first; (void)trig;
+    if (track == ACTIVE_TRACK) { play_step = step; last_fire = fx_ticks; }
+}
+
 /* ---- the LED frame: the preview on the trig keys, then the stock views ------------------------------ */
 void ledc_frame(void *arg)
 {
     if (ready && showing) {
         show_frame(LED_MGR());
-    } else if (ready && trk_held) {
+    } else if (ready && trk_held && !func_down) {   /* with FUNC down the stock quick-mute view shows */
         uint32_t mgr = LED_MGR();
         int32_t blink = (++trk_frames / 8) & 1;
         for (int32_t s = 0; s < TRACKS; s++) {
@@ -628,12 +764,14 @@ void ledc_frame(void *arg)
                 colour = rep[edit];
             LED_SET(mgr, TRIG_LED(step), 2, colour);
         }
+    } else if (ready && fx_bits[fx]) {
+        fx_frame(LED_MGR());
     }
     VIEWS_LEDS(arg);
 }
 
 /* ---- SETTINGS rows ---------------------------------------------------------------------------------- */
-enum { ROW_THEME, ROW_EDIT, ROW_R, ROW_G, ROW_B, ROW_IDLE, ROW_SHOW, ROW_T1 };   /* ROW_T1 + n: track n+1 */
+enum { ROW_THEME, ROW_EDIT, ROW_R, ROW_G, ROW_B, ROW_IDLE, ROW_SHOW, ROW_FX, ROW_T1 };   /* ROW_T1 + n: track n+1 */
 
 static void redraw(void **payload)
 {
@@ -663,6 +801,11 @@ static void step_row(int32_t row, int32_t delta)
         idle = 0;
         save_wait = 60;                       /* saved two seconds after the last change */
         return;
+    case ROW_FX:
+        fx = (fx + d + FX_CHOICES) % FX_CHOICES;
+        quiet = 0;
+        save_wait = 60;
+        return;
     case ROW_SHOW:                            /* show it now, so the choice can be seen */
         show = (show + d + SHOWS) % SHOWS;
         showing = 1;
@@ -687,6 +830,8 @@ static void step_row(int32_t row, int32_t delta)
     }
     }
     preview = 90;                             /* three seconds */
+    if (edit == F_RED && !preview_all && cur_trk >= 0 && trk_col[cur_trk])
+        apply();                              /* 0.9: now the preview is on, the red edit shows */
     save_wait = 60;
 }
 
@@ -711,6 +856,8 @@ static void draw_row(int32_t row, void *bmp, int32_t x, int32_t y)
         text = idle_name[idle_mode];
     else if (row == ROW_SHOW)
         text = show_name[show];
+    else if (row == ROW_FX)
+        text = fx_name[fx];
     else if (row >= ROW_T1)
         text = trk_col[row - ROW_T1] ? fam_name[trk_col[row - ROW_T1] - 1] : "THEME";
     else {
@@ -738,6 +885,7 @@ ROW_FNS(g, ROW_G)
 ROW_FNS(b, ROW_B)
 ROW_FNS(idle, ROW_IDLE)
 ROW_FNS(show, ROW_SHOW)
+ROW_FNS(fx, ROW_FX)
 ROW_FNS(t1, ROW_T1 + 0)   ROW_FNS(t2, ROW_T1 + 1)   ROW_FNS(t3, ROW_T1 + 2)   ROW_FNS(t4, ROW_T1 + 3)
 ROW_FNS(t5, ROW_T1 + 4)   ROW_FNS(t6, ROW_T1 + 5)   ROW_FNS(t7, ROW_T1 + 6)   ROW_FNS(t8, ROW_T1 + 7)
 ROW_FNS(t9, ROW_T1 + 8)   ROW_FNS(t10, ROW_T1 + 9)  ROW_FNS(t11, ROW_T1 + 10) ROW_FNS(t12, ROW_T1 + 11)
@@ -745,7 +893,7 @@ ROW_FNS(t13, ROW_T1 + 12) ROW_FNS(t14, ROW_T1 + 13) ROW_FNS(t15, ROW_T1 + 14) RO
 
 /* The rows, in ledc.s (their labels return a std::string, which needs assembly). */
 extern const uint32_t ledc_row_theme[], ledc_row_edit[], ledc_row_r[], ledc_row_g[], ledc_row_b[],
-    ledc_row_idle[], ledc_row_show[];
+    ledc_row_idle[], ledc_row_show[], ledc_row_fx[];
 extern const uint32_t ledc_row_t1[], ledc_row_t2[], ledc_row_t3[], ledc_row_t4[], ledc_row_t5[], ledc_row_t6[],
     ledc_row_t7[], ledc_row_t8[], ledc_row_t9[], ledc_row_t10[], ledc_row_t11[], ledc_row_t12[], ledc_row_t13[],
     ledc_row_t14[], ledc_row_t15[], ledc_row_t16[];
@@ -812,6 +960,7 @@ void ledc_settings(void *menu)
     core_additem(menu, ledc_row_b);
     core_additem(menu, ledc_row_idle);
     core_additem(menu, ledc_row_show);
+    core_additem(menu, ledc_row_fx);
     static const uint32_t *const trk_rows[TRACKS] = {ledc_row_t1, ledc_row_t2, ledc_row_t3, ledc_row_t4,
         ledc_row_t5, ledc_row_t6, ledc_row_t7, ledc_row_t8, ledc_row_t9, ledc_row_t10, ledc_row_t11,
         ledc_row_t12, ledc_row_t13, ledc_row_t14, ledc_row_t15, ledc_row_t16};

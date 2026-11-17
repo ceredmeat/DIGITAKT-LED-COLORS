@@ -55,6 +55,7 @@ hdr_str:
         LABEL   b, "LED BLUE"
         LABEL   idle, "LED IDLE"
         LABEL   show, "LED SHOW"
+        LABEL   fx, "LED FX"
         LABEL   t1, "TRK 1 COLOR"
         LABEL   t2, "TRK 2 COLOR"
         LABEL   t3, "TRK 3 COLOR"
