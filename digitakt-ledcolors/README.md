@@ -1,102 +1,262 @@
-# LED colours – themes, colour picker and standby light show
-Digitakt MKI, **OS 1.54 only**. Elekloader mod `ledcolors` **0.5**: its own LED COLORS section in SETTINGS, and the TRK colour view no longer gets stuck. (0.4 added per-track colours; 0.3 seven more standby shows and core 4.0.1 support.)
+# LED COLORS for the Digitakt MKI
 
-## New in 0.5
+Recolour the Digitakt's key lights, give each track its own colour, and add light effects:
+a heat map of your pattern, ripples when you press a key, breathing keys at rest, and a
+standby light show.
 
-- **Its own section in SETTINGS.** All the LED rows now sit under one **LED COLORS** row, so the
-  SETTINGS list stays short. Select **LED COLORS** (YES), or turn the knob right, to open the rows
-  under it. Select it again, or turn left, to fold them away. It starts closed each time you power
-  on.
-- **The TRK colour view no longer gets stuck.** Holding TRK shows every track's colour on the
-  trigs. Before, that view could stay on after you let go of TRK (usually after TRK + a trig, or a
-  long hold). Now:
-  - the mod reads TRK's release the same way the firmware itself does;
-  - as a safety net, the view turns itself off **2 seconds** after the last TRK key, colour
-    change or track change, even if a release goes missing.
+- **Mod:** `ledcolors` 0.9, for Elekloader
+- **Digitakt MKI, OS 1.54 only**
+- **Needs in the build:** `core` (4.0 or later) and `seq-events`
+- **Works with, if it's there:** `djfilter` 0.6 or later (HEAT follows the DJ filter)
 
-  If you hold TRK still for more than 2 seconds without touching anything, the view ends while
-  you're still holding. Just tap TRK again.
+---
 
-## What you get
-Seven new rows at the bottom of **SETTINGS** (below SYSTEM). Use UP/DOWN to pick a row, LEFT/RIGHT to change it. YES also steps a value forward.
+## Quick start
 
-| Row | Values | What it does |
+1. Add `ledcolors` (plus `core` and `seq-events`) to your build in Elekloader, then flash it.
+2. On the Digitakt, open **SETTINGS** and scroll to the bottom.
+3. Select **LED COLORS** (press YES, or turn right) to open its rows. Select it again to close
+   them.
+4. Use UP/DOWN to pick a row and LEFT/RIGHT to change it.
+
+Everything you change is saved by itself about 2 seconds later and comes back at power-on.
+
+---
+
+## The settings
+
+| Row | Choices | What it does |
 |---|---|---|
-| LED THEME | STOCK, PINK, SOFT, LAVENDER, OCEAN, SUNSET, CUSTOM | Recolours every key LED. The trigs flash every colour family for 3 s so you can see the theme. |
-| LED EDIT | RED, ORANGE, YELLOW, GREEN, TEAL, CYAN, SKY, BLUE, LILAC, MAGENTA, WHITE | Which colour family the three rows below edit. These are the stock colour names (e.g. RED = everything that's normally red). |
-| LED RED / LED GREEN / LED BLUE | 0–31 | The family's colour. Changing one turns the theme into CUSTOM. All 16 trigs show the colour for 3 s. |
-| LED IDLE | OFF, 30S, 1M, 2M, 5M | Start the light show after this long with no key, knob or sound. |
-| LED SHOW | COMET, RAINBOW, BREATHE, RAIN, SCANNER, SPARKLE, WAVE, HEARTBEAT, FIREWORKS, LITESHOW | Which light show. Changing it starts the show at once so you can see it. |
+| **LED THEME** | STOCK, PINK, SOFT, LAVENDER, OCEAN, SUNSET, CUSTOM | The colour scheme for every key light. The trig keys show the theme's colours for 3 seconds when you change it. |
+| **LED EDIT** | RED, ORANGE, YELLOW, GREEN, TEAL, CYAN, SKY, BLUE, LILAC, MAGENTA, WHITE | Which colour the three rows below edit (see "How the colours work"). |
+| **LED RED / GREEN / BLUE** | 0–31 | Mix the colour chosen in LED EDIT. Changing one switches the theme to CUSTOM. The trig keys show the result for 3 seconds. |
+| **LED IDLE** | OFF, 30S, 1M, 2M, 5M | How long the Digitakt must be silent and untouched before the standby light show starts. |
+| **LED SHOW** | COMET, RAINBOW, BREATHE, RAIN, SCANNER, SPARKLE, WAVE, HEARTBEAT, FIREWORKS, LITESHOW | Which standby show. Changing it plays the show straight away so you can see it. |
+| **LED FX** | OFF, HEAT, RIPPLE, BREATH, HEAT+RIP, RIP+BRTH, ALL | The light effects while you work (see "LED FX"). |
+| **TRK 1–16 COLOR** | THEME, or any colour | Each track's own colour (see "Track colours"). |
 
-**Light show:**
-- The first key press or knob turn only wakes the keys. It doesn't do anything else, so you won't change a setting by accident.
-- The show never starts while a pattern is making sound, so it can't cover your playhead.
+---
 
-**Dim/bright:** all theme colours keep working with LED INTENSITY and LED BACKLIGHT. Dim versions of a colour keep its hue.
+## How the colours work
 
-**Your settings are saved.** About 2 seconds after your last change, the theme, your CUSTOM colours, LED IDLE, LED SHOW and the LED EDIT choice are saved, and they come back at power-on. The very first time (nothing saved yet) you get theme PINK, LED IDLE 1M, LED SHOW COMET.
+This section explains the behaviour people find most confusing.
 
-Where it's saved:
-- One 512-byte block of the internal storage (eMMC block `0x60000`). It sits in a gap the stock firmware never writes: between the +Drive's sound slots and the firmware's own settings/project copies. It's outside the +Drive file system, so it doesn't show up as a file and uses no +Drive space.
-- The record has a "LEDC" marker and a checksum. If either is wrong (for example after a factory reset), the mod just uses the defaults.
-- If you go back to stock firmware, the block is simply ignored.
+### Colours, not keys
 
-## Per-track colours (0.4)
-Give each of the 16 tracks (audio 1-8 and MIDI 9-16) its own colour: kicks red, snares orange, hats yellow…
+The Digitakt doesn't colour each key separately. It uses about a dozen **colours** (red,
+orange, yellow, green and so on), and every key light is drawn in one of them.
 
-- **The list:** SETTINGS → **TRK 1 COLOR … TRK 16 COLOR**. LEFT/RIGHT steps through THEME, RED, ORANGE, YELLOW, GREEN, TEAL, CYAN, SKY, BLUE, LILAC, MAGENTA, WHITE.
-- **The fast way:** hold **TRK** and press **LEFT/RIGHT** to change the active track's colour.
-- **What changes:** the placed trigs (and everything else that's normally red) take the active track's colour. **THEME** (the default) leaves your theme's red alone.
-- **Holding TRK** shows every track's colour on its trig, with the active track blinking, so you can see which key is which before you pick.
-- The colours are saved with the other LED settings. Your 0.2/0.3 settings still load; every track starts on THEME.
-- The colours are your own families: change a family in CUSTOM (LED EDIT + RED/GREEN/BLUE) and every track using it changes too.
+So editing a colour changes **every key that uses it**. For example, the stock firmware draws
+placed trigs, the REC key and several page-key lights in **red**. Make red pink, and all of them
+turn pink.
 
-## The new shows (0.3)
+### Themes
+
+A theme sets all the colours at once. **CUSTOM** is your own theme. Pick a colour in **LED EDIT**,
+then mix it with **LED RED / GREEN / BLUE**. Your other colours stay as they were.
+
+### Track colours
+
+**TRK n COLOR** gives a track its own colour. While that track is the **active** track, its colour
+**replaces the theme's red**, everywhere red is used:
+
+- the trigs you place;
+- the REC key and the other keys that are normally red.
+
+That's why a yellow track turns the trigs, REC and some menu keys yellow. It's by design: the
+Digitakt has one "red", and the track colour stands in for it.
+
+- **THEME** (the default) means the track has no colour of its own, so it uses the theme's red.
+- Switch to another track and its colour takes over. Switch to a THEME track and you get the
+  theme's red again.
+
+**Quick ways to set them:**
+- Hold **TRK** and press **LEFT/RIGHT** to change the active track's colour.
+- **Holding TRK** shows every track's colour on its trig key. The active track blinks.
+
+### Editing CUSTOM red while a track has its own colour
+
+The track colour replaces red, so normally you wouldn't see a red edit while a coloured track
+is active. To avoid that, while you edit RED (LED EDIT on RED, or changing its RED/GREEN/BLUE),
+the track colour steps aside for the 3-second preview and you see your red. Afterwards the
+track's colour comes back.
+
+Your custom red is then used by every track set to **THEME**.
+
+### Quick mute (TRK + FUNC)
+
+While you hold TRK + FUNC, the keys show the Digitakt's normal mute colours: **green** for tracks
+that play and **red** for muted ones. Let go of FUNC (still holding TRK) and the track colours
+come back.
+
+---
+
+## LED FX
+
+Effects on the 16 trig keys while you work. Pick them in **LED FX**. ALL turns on all three.
+
+### HEAT: a heat map of your pattern
+
+While the pattern plays, each trig key stands for one step (1–16). Every time something plays on
+that step, on any track, the key warms up. Louder hits warm it more.
+
+- **The colour shows how busy the step is:** dark, then blue, lilac, magenta, red, orange, and
+  yellow for the busiest.
+- **It cools down** over a couple of seconds, so it shows what is playing now.
+- **The white key** is where the active track is playing.
+- **Recording pauses it.** In grid recording or live recording, HEAT steps aside so you can see
+  your trigs, and it comes back when you leave recording. (The mod follows your presses of
+  the RECORD key to know this.)
+- **With the DJ filter** (`djfilter` 0.6 or later in your build), the heat map follows the filter:
+  - cutting the **lows** (DJ knob right, or HP) darkens the **cool** steps first;
+  - cutting the **highs** (DJ knob left, or LP) darkens the **hot** steps first;
+  - the further it cuts, the more goes dark. MIX scales it, and the white playhead always shows.
+
+### RIPPLE
+
+Pressing a trig key sends a ring of colour outward along the keys. The colour depends on which
+key you pressed.
+
+When a trig mode (from the `trigmodes` mod) has the trig keys, there's no ripple.
+
+### BREATH
+
+When the pattern is **stopped** and you haven't touched a key or knob for **5 seconds**, the trig
+keys slowly breathe, from off to full, in the active track's colour (or the theme's red). Touch
+anything and it stops.
+
+### The standby show comes first
+
+If LED IDLE is on and the Digitakt has been silent long enough, the standby show takes over the
+keys, even during BREATH.
+
+---
+
+## The standby light show
+
+After the LED IDLE time with **no sound and no key or knob touched**, the keys play the show
+chosen in LED SHOW.
+
+- **The first key or knob only wakes the keys.** It does nothing else, so you can't change a
+  setting by accident.
+- **It never starts while sound is playing**, including sounds still fading out.
+
 | Show | What it looks like |
 |---|---|
-| RAIN | Drops land on random trigs and fade, mostly blue with the odd white one. |
-| SCANNER | A light sweeps back and forth across the 16 trigs with a fading tail; the colour changes each pass. |
-| SPARKLE | Quick twinkles on random trigs, in all your theme's colours. |
-| WAVE | A soft brightness wave rolls along the trigs; the colour changes every 4 seconds. |
-| HEARTBEAT | A double pulse spreads out from the middle trigs, then a rest; red, then magenta. |
-| FIREWORKS | A burst from a random trig spreads outward and fades, then the next one launches. |
-| LITESHOW | After the Hydrasynth's Lite Show: white, orange and red, moving through five 4-second phases (sweep out and back, twinkles, a wipe out from the middle and back, fill and drain from trig 1, alternating flips), while the other keys flash in two alternating groups, 3 beats a second. |
+| COMET | A light with a tail runs along the keys. |
+| RAINBOW | Colours flow along the keys. |
+| BREATHE | All the keys fade in and out together. |
+| RAIN | Drops land on random keys and fade, mostly blue. |
+| SCANNER | A light sweeps back and forth, changing colour each pass. |
+| SPARKLE | Quick twinkles on random keys, in your theme's colours. |
+| WAVE | A soft wave of brightness rolls along the keys. |
+| HEARTBEAT | A double pulse spreads from the middle, then a rest. |
+| FIREWORKS | Bursts spread out from random keys and fade. |
+| LITESHOW | White, orange and red patterns in five phases, after the Hydrasynth's Lite Show. |
 
-All of them follow your theme: they use the colour families, so PINK, OCEAN or your CUSTOM colours change how they look.
+All of them use your theme's colours.
 
-**0.3 and core 4.0.1:** 0.2 used one routine (`fw_invalidate`, redraw the screen) that only core 4.1 provides. 0.3 calls the firmware's own routine for it directly (0x400c9a3a in 1.54), so it builds with core 4.0.1 and later. Your saved settings from 0.2 carry over.
+---
 
-## Tips for mixing colours
-- The panel dims LEDs on an exponential curve. Each step of 0–31 is about 24 % brighter than the one below, near the top.
-- A channel 8 steps below another is only about a tenth as bright.
-- **For pastels, keep the weaker channels close to the strongest:** lavender ≈ 26/22/31, soft pink ≈ 31/21/26, warm white ≈ 31/28/26.
-- **For strong colours, keep them far apart:** 31/13/22 is a vivid pink.
+## FAQ
 
-## Files
-| File | Use |
+**I changed CUSTOM red but nothing happened.**
+Your active track probably has its own colour, which replaces red. Use 0.9 or later, where the
+track colour steps aside while you edit red. Or select a track set to THEME to see your red.
+
+**Why did my REC key and menu keys change colour with the track?**
+The track colour replaces the theme's red, and those keys are red on the stock Digitakt. See
+"Track colours".
+
+**Can a track colour change only the trigs?**
+Not at the moment. The Digitakt draws everything in shared colours, and the mod can't tell which
+key shows what.
+
+**The heat map covers my trigs.**
+HEAT only shows while the pattern plays, and it pauses while you record. If it shows during
+grid recording, the mod has lost track of RECORD. Press RECORD twice (out and back in).
+
+**BREATH doesn't start.**
+It needs the pattern **stopped** and 5 seconds without touching a key or knob. LED FX must be
+set to BREATH, RIP+BRTH or ALL.
+
+**The build says `djfilter_kv` is missing, or HEAT doesn't follow the filter.**
+djfilter is optional. Without it, HEAT just shows the full heat map. For the filter link, use
+djfilter 0.6 or later.
+
+**The build refuses ledcolors.**
+Since 0.6 it needs `seq-events` in the build as well as `core`.
+
+---
+
+## Mixing your own colours
+
+- Brightness steps get bigger towards the top: each of 0–31 is about 24% brighter than the one
+  below. A channel 8 steps below another is only about a tenth as bright.
+- **Pastels:** keep all three channels close, e.g. lavender 26/22/31, soft pink 31/21/26, warm
+  white 31/28/26.
+- **Strong colours:** keep them far apart, e.g. vivid pink 31/13/22.
+
+---
+
+## Saving
+
+Your theme, custom colours, LED IDLE, LED SHOW, LED FX, LED EDIT and track colours are saved
+about 2 seconds after your last change.
+
+- They're kept in one 512-byte block of the internal storage (eMMC block `0x60000`). The stock
+  firmware never uses that spot, and it isn't on the +Drive, so it takes no sample space.
+- The record has a marker and a checksum. If either is wrong, for example after a factory
+  reset, the mod starts from its defaults: theme PINK, LED IDLE 1M, LED SHOW COMET, LED FX ALL.
+- Settings from older versions carry over.
+- If you go back to stock firmware, the block is simply ignored.
+
+---
+
+## Changes
+
+| Version | What changed |
 |---|---|
-| `ledcolors-0.5.elemod` | The mod for the Elekloader app (core 4.0.1 or later). |
-| `ledc.c`, `ledc.s`, `mod.json` | The source (GPL-2.0-or-later). |
-| `themes_preview.png` | A screen approximation of each theme. |
+| 0.9 | Editing CUSTOM red shows the edit even when the active track has its own colour. |
+| 0.8 | HEAT follows the DJ filter. HEAT pauses while recording. BREATH starts reliably (sound fading out no longer holds it off) and goes from off to full. |
+| 0.7 | Quick mute (TRK + FUNC) shows the normal green/red mute colours instead of the track colours. |
+| 0.6 | LED FX: HEAT, RIPPLE and BREATH. Needs `seq-events`. |
+| 0.5 | All rows under one LED COLORS section. The TRK colour view no longer gets stuck. |
+| 0.4 | Track colours. |
+| 0.3 | Seven more standby shows. |
+| 0.2 | Settings are saved. |
+| 0.1 | Themes, custom colours and the standby show. |
 
-No ready-to-flash `.syx` is included: it would contain Elektron's firmware. Build your own with
-the Elekloader app from the stock OS 1.54 and this `.elemod`.
+---
 
-## How it works (short)
-- The firmware keeps the 41-colour LED palette in RAM. The mod rewrites it and asks the firmware to resend it to the front-panel controller.
-- For the previews and the light show, one call in the firmware's per-frame LED update (`0x400099b6`) is pointed at the mod first. It sets its LEDs, then lets the normal screens set the rest.
-- The mod adds no work to the audio.
+## Tested on a unit
 
-## Tested
-- **On a real Digitakt MKI (OS 1.54):** 0.5 tested on hardware by the author: themes, colour
-  editing, per-track colours, the TRK colour view turning off, the LED COLORS section and the light
-  shows.
-- Earlier, in the digiemu emulator on the real 1.54 firmware: the rows, every theme, the previews,
-  the shows starting and waking, and the settings saved to and read back from the eMMC.
+Tested on a Digitakt MKI, OS 1.54: themes and custom colours (including editing RED with a coloured
+track active), per-track colours, quick mute (TRK + FUNC) showing green/red, LED FX (HEAT, RIPPLE,
+BREATH), HEAT following the DJ filter, and settings surviving a power cycle.
 
-## Flash / undo
-- **Flash:** build a `.syx` with the Elekloader app, then Elektron Transfer → Connect → drop the `.syx` → press YES on the unit.
+---
+
+## Flash and undo
+
+- **Flash:** build with Elekloader, then send the `.syx` with Elektron Transfer and confirm with
+  YES on the unit.
 - **Undo:** flash the stock `Digitakt_OS1.54.syx`.
-- **If it won't start:** hold FUNC while powering on → TRIG 4 (OS UPGRADE) → send the stock file.
+- **If it won't start:** hold FUNC while powering on, choose TRIG 4 (OS UPGRADE), and send the
+  stock file.
 
-A built `.syx` contains Elektron's firmware: keep it for personal use and share only the `.elemod`.
+Share the `.elemod`, never a `.syx`: a `.syx` contains Elektron's firmware.
+
+---
+
+## How it works (for the curious)
+
+- The firmware keeps its LED colours in a 41-entry table in memory. The mod rewrites that table
+  and asks the firmware to resend it to the front panel.
+- For the effects and shows, the mod sets its keys first in each LED update, then lets the
+  normal screens set the rest.
+- It adds no work to the audio.
+
+## Licence
+
+GPL-2.0-or-later. Source: `ledc.c`, `ledc.s`, `mod.json`.

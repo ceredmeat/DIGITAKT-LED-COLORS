@@ -1,11 +1,11 @@
 {
  "id": "ledcolors",
- "version": "0.5",
+ "version": "0.9",
  "title": "LED colours: themes, picker, standby shows, per-track colours",
  "category": "Looks",
  "license": "GPL-2.0-or-later",
  "author": "made with Claude",
- "description": "SETTINGS gets one LED COLORS row: select it (or turn it right) to open the LED rows under it, select it again (or turn left) to close them, so the rest of SETTINGS stays short. LED THEME recolours the key LEDs (STOCK, PINK, SOFT, LAVENDER, OCEAN, SUNSET, CUSTOM); LED EDIT and LED RED/GREEN/BLUE set any colour family's colour (0-31), previewed on the trig keys. LED IDLE (OFF/30S/1M/2M/5M) starts a light show (LED SHOW: COMET, RAINBOW, BREATHE, RAIN, SCANNER, SPARKLE, WAVE, HEARTBEAT, FIREWORKS, LITESHOW) when no key, knob or sound has come for that long; the first key or knob only wakes it. The settings are saved (one eMMC block the stock firmware never uses, 0x60000) and restored at power-on; the first time, the theme is PINK and LED IDLE 1M. Works with core 4.0.1 and later. Per-track colours: TRK 1-16 COLOR in SETTINGS, or hold TRK and press LEFT/RIGHT; placed trigs take the active track's colour, and holding TRK shows every track's colour on its trig, and that view turns itself off two seconds after the last TRK key or colour change.",
+ "description": "SETTINGS gets one LED COLORS row: select it (or turn it right) to open the LED rows under it, select it again (or turn left) to close them, so the rest of SETTINGS stays short. LED THEME recolours the key LEDs (STOCK, PINK, SOFT, LAVENDER, OCEAN, SUNSET, CUSTOM); LED EDIT and LED RED/GREEN/BLUE set any colour family's colour (0-31), previewed on the trig keys. LED IDLE (OFF/30S/1M/2M/5M) starts a light show (LED SHOW: COMET, RAINBOW, BREATHE, RAIN, SCANNER, SPARKLE, WAVE, HEARTBEAT, FIREWORKS, LITESHOW) when no key, knob or sound has come for that long; the first key or knob only wakes it. The settings are saved (one eMMC block the stock firmware never uses, 0x60000) and restored at power-on; the first time, the theme is PINK and LED IDLE 1M. Works with core 4.0.1 and later. Per-track colours: TRK 1-16 COLOR in SETTINGS, or hold TRK and press LEFT/RIGHT; placed trigs take the active track's colour, and holding TRK shows every track's colour on its trig, and that view turns itself off two seconds after the last TRK key or colour change. LED FX (0.6): HEAT (while playing, each trig key glows from cool blue to hot yellow by how much its step plays, the playhead white), RIPPLE (each trig press sends a ring of colour out along the keys) and BREATH (stopped and untouched for five seconds, the trig keys breathe in the active track's colour); OFF, any one, two or ALL, saved. Needs seq-events. 0.7: holding TRK + FUNC (quick mute) shows the stock mute colours, green and red, instead of the track colours, and the track colours come back when FUNC is let go. HEAT pauses while recording (grid or live), so the trigs show; BREATH starts after 5 s stopped and untouched (sound ringing on no longer holds it off) and goes from off to the full colour. 0.8: HEAT follows the DJ filter when it's in the build: a high-pass (DJ knob right, HP) darkens the cool steps, a low-pass (DJ knob left, LP) the hot ones, more the further it cuts. 0.9: editing the CUSTOM theme's RED shows the edit even when the active track has its own colour (the track colour steps aside while the preview shows).",
  "device": "digitakt-mk1",
  "os": "1.54",
  "sources": [
@@ -33,7 +33,8 @@
   "-DSAVE_BLOCK=0x60000",
   "-DINVALIDATE_AT=0x400c9a3a",
   "-DACTIVE_TRACK_AT=0x4197c6b4",
-  "-DSETTINGS_BUILD_AT=0x400583fc"
+  "-DSETTINGS_BUILD_AT=0x400583fc",
+  "-Os"
  ],
  "defsym": {
   "STR_CTOR": "0x4017af20"
@@ -66,6 +67,16 @@
    "event": "ev_enc",
    "fn": "ledc_enc",
    "order": 5
+  },
+  {
+   "event": "ev_fire_vel",
+   "fn": "ledc_fire",
+   "order": 95
+  },
+  {
+   "event": "ev_gen_trig",
+   "fn": "ledc_step",
+   "order": 95
   }
  ],
  "resources": {
@@ -78,6 +89,7 @@
    "ui:SETTINGS:LED BLUE",
    "ui:SETTINGS:LED IDLE",
    "ui:SETTINGS:LED SHOW",
+   "ui:SETTINGS:LED FX",
    "emmc:block:0x60000",
    "ui:SETTINGS:TRK 1 COLOR",
    "ui:SETTINGS:TRK 2 COLOR",
@@ -98,6 +110,10 @@
   ]
  },
  "requires": [
-  "core"
+  "core",
+  "seq-events"
+ ],
+ "weak": [
+  "djfilter_kv"
  ]
 }
