@@ -253,7 +253,8 @@ about 2 seconds after your last change.
 
 Tested on a Digitakt MKI, OS 1.54: themes and custom colours (including editing RED with a coloured
 track active), per-track colours, quick mute (TRK + FUNC) showing green/red, LED FX (HEAT, RIPPLE,
-BREATH), HEAT following the DJ filter, and settings surviving a power cycle.
+BREATH), HEAT following the DJ filter, and settings surviving a power cycle. 1.0 and 1.1 (the
+DIGIARCADE game lights, BLOOM and only RIPPLE while recording) are tested on the unit too.
 
 ---
 

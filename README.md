@@ -3,7 +3,7 @@
 
 A custom LED theme editor, per-track colours, light effects and a standby light show for the **Elektron Digitakt MKI running OS 1.54**. The Elekloader mod adds theme selection, per-colour-family RGB editing, trig-key previews, and optional idle animations, with user settings saved across restarts.
 
-> **Device compatibility:** Version 0.9 has been **tested on a physical Digitakt MKI running OS 1.54**; 1.0 and 1.1: see "Tested on a unit" in the mod's README. Firmware modding always carries risk: keep a stock OS image and a project backup.
+> **Device compatibility:** Version 1.1 has been **tested on a physical Digitakt MKI running OS 1.54**. Firmware modding always carries risk: keep a stock OS image and a project backup.
 
 ## Features
 
