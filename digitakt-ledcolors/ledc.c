@@ -22,6 +22,7 @@
  * once at power-on; a block without the LEDC magic and a good checksum is ignored (defaults are used).
  */
 #include <stdint.h>
+#include "../common/heapbuf.h"
 
 /* ---- firmware (OS 1.54, from mod.json's cflags) -------------------------------------------------- */
 #define TAB_A ((uint8_t *)TAB_A_AT)          /* palette, backlight off: 3 x 41 x RGB */
@@ -120,9 +121,9 @@ enum { IDLE_OFF, IDLE_30S, IDLE_1M, IDLE_2M, IDLE_5M, IDLES };
 static const char *const idle_name[IDLES] = {"OFF", "30S", "1M", "2M", "5M"};
 static const int32_t idle_ticks_for[IDLES] = {0, 30 * 30, 60 * 30, 120 * 30, 300 * 30};
 enum { SHOW_COMET, SHOW_RAINBOW, SHOW_BREATHE, SHOW_RAIN, SHOW_SCANNER, SHOW_SPARKLE, SHOW_WAVE,
-       SHOW_HEARTBEAT, SHOW_FIREWORKS, SHOW_LITESHOW, SHOWS };
+       SHOW_HEARTBEAT, SHOW_FIREWORKS, SHOW_LITESHOW, SHOW_BLOOM, SHOWS };
 static const char *const show_name[SHOWS] = {"COMET", "RAINBOW", "BREATHE", "RAIN", "SCANNER", "SPARKLE",
-                                             "WAVE", "HEARTBEAT", "FIREWORKS", "LITESHOW"};
+                                             "WAVE", "HEARTBEAT", "FIREWORKS", "LITESHOW", "BLOOM"};
 #ifndef DEFAULT_IDLE
 #define DEFAULT_IDLE IDLE_1M
 #endif
@@ -256,7 +257,7 @@ struct save {
     rgb custom[FAMILIES];
     uint32_t sum;
 };
-static uint8_t block[512] __attribute__((aligned(16)));
+HEAP_BUF(block, 512)          /* borrowed from the heap while loading or saving */
 static int32_t save_wait;                    /* ticks until the pending save; 0 = nothing pending */
 
 static uint32_t checksum(const uint8_t *p, int32_t n)
@@ -281,6 +282,7 @@ static void load_tracks(void)
 
 static void load(void)
 {
+    if (!block_ready()) return;
     for (int32_t i = 0; i < 512; i++) block[i] = 0;
     if (EMMC_READ(SAVE_BLOCK, 512, block) != 0)
         return;
@@ -301,6 +303,7 @@ static void load(void)
 
 static void save(void)
 {
+    if (!block_ready()) return;
     for (int32_t i = 0; i < 512; i++) block[i] = 0;
     struct save *s = (struct save *)block;
     s->magic = SAVE_MAGIC;
@@ -554,6 +557,47 @@ static int32_t lite_colour(int32_t s, int32_t step)
     }
 }
 
+/* BLOOM (1.1): a garden that grows itself. The 16 trigs are a ring of cells run by a one-dimensional
+ * cellular automaton (Wolfram's rules 30, 45, 73, 90, 105, 110, 150: each cell's next state from itself and
+ * its two neighbours), a generation every 1.2 s. A cell's colour is its age: born white, then through the
+ * palette (cyan, green, lilac, magenta; or yellow, orange, red, magenta, the palettes taking turns every
+ * few minutes), and a cell that dies fades out in blue. When the garden dies out or falls into a loop, and
+ * every two minutes anyway, it is sown again with another rule, so it never settles. */
+static uint16_t bl_cells, bl_hist[8];
+static uint8_t bl_age[16], bl_dead[16], bl_rule, bl_gen, bl_fam[16];
+static const uint8_t bl_rules[7] = { 30, 45, 73, 90, 105, 110, 150 };
+static void bl_sow(void)
+{
+    bl_rule = bl_rules[rnd(7)];
+    bl_cells = (uint16_t)(rnd(0xffff) | 1u << rnd(16));
+    for (int32_t i = 0; i < 8; i++) bl_hist[i] = 0;
+    for (int32_t c = 0; c < 16; c++) bl_age[c] = 0;
+}
+static void bl_generation(int32_t step)
+{
+    static const uint8_t pal[2][4] = { { F_CYAN, F_GREEN, F_LILAC, F_MAGENTA }, { F_YELLOW, F_ORANGE, F_RED, F_MAGENTA } };
+    uint16_t next = 0;
+    for (int32_t c = 0; c < 16; c++) {
+        int32_t l = bl_cells >> ((c + 15) & 15) & 1, m = bl_cells >> c & 1, r = bl_cells >> ((c + 1) & 15) & 1;
+        if (bl_rule >> (l << 2 | m << 1 | r) & 1) next |= (uint16_t)(1u << c);
+    }
+    int32_t loop = !next;
+    for (int32_t i = 0; i < 8; i++) if (bl_hist[i] == next) loop = 1;
+    for (int32_t i = 7; i > 0; i--) bl_hist[i] = bl_hist[i - 1];
+    bl_hist[0] = bl_cells;
+    static uint8_t gens;
+    if ((loop && ++bl_gen > 3) || ++gens >= 100) {   /* a few loops, or two minutes: sow again */
+        bl_gen = 0; gens = 0; bl_sow(); next = bl_cells;
+    }
+    const uint8_t *p = pal[(step / 1800) & 1];                               /* the palettes take turns, 3 min */
+    for (int32_t c = 0; c < 16; c++) {
+        int32_t was = bl_cells >> c & 1, is = next >> c & 1;
+        if (is) { bl_age[c] = (uint8_t)(was ? (bl_age[c] < 9 ? bl_age[c] + 1 : 9) : 0); bl_fam[c] = bl_age[c] ? p[(bl_age[c] - 1) / 2 & 3] : F_WHITE; bl_dead[c] = 0; }
+        else if (was) bl_dead[c] = 1;                                         /* starts to fade */
+    }
+    bl_cells = next;
+}
+
 static void new_step(int32_t step)
 {
     if (show != last_show) {                  /* a fresh start for the show */
@@ -574,6 +618,10 @@ static void new_step(int32_t step)
         if (lite_phase(step) == 1)            /* the twinkle phase: white, orange and red drops */
             for (int32_t k = 1 + rnd(2); k > 0; k--)
                 light((int32_t)rnd(16), lite_fams[rnd(3)]);
+    } else if (show == SHOW_BLOOM) {
+        if (!bl_cells && !bl_hist[0]) bl_sow();
+        if (step % 12 == 0) bl_generation(step);
+        for (int32_t c = 0; c < 16; c++) if (bl_dead[c] && bl_dead[c] < 7) bl_dead[c]++;
     } else if (show == SHOW_FIREWORKS) {
         if (++fw_t > 16) {                    /* launch the next burst */
             fw_t = 0;
@@ -591,6 +639,13 @@ static int32_t newer_colour(int32_t s, int32_t step)
     switch (show) {
     case SHOW_LITESHOW:
         return lite_colour(s, step);
+    case SHOW_BLOOM: {
+        int32_t since = step % 12;                    /* steps since the generation */
+        if (bl_cells >> s & 1)                        /* alive: a newborn brightens in, then holds */
+            return fade(bl_fam[s], bl_age[s] == 0 ? (since < 3 ? 3 - since : 0) : 0);
+        if (bl_dead[s] && bl_dead[s] < 7) return fade(F_BLUE, bl_dead[s] - 2);   /* dying: out in blue */
+        return 2;
+    }
     case SHOW_SCANNER: {                      /* back and forth, one pass every 1.5 s, with a tail */
         int32_t p = step % 30, head = p < 15 ? p : 30 - p;
         int32_t f = show_fams[(step / 30) % SHOW_FAMS];
@@ -714,7 +769,7 @@ static void fx_frame(uint32_t mgr)
         }
     }
     /* BREATH: stopped and untouched for 5 s; a breath every 4 s in the active track's colour */
-    if ((bits & FX_BREATH) && !playing && quiet > 150) {
+    if ((bits & FX_BREATH) && !playing && !rec_on && quiet > 150) {   /* not while recording */
         int32_t f = cur_trk >= 0 && trk_col[cur_trk] ? trk_col[cur_trk] - 1 : F_RED;
         int32_t n = ramp_len(f), ph = (now / 2) % 46, lv = ph < 23 ? ph : 45 - ph;   /* 0-22: in, then out */
         int32_t c = lv < 3 ? 2 : shade(f, (n - 1) - (lv - 3) * n / 20);         /* off, then up to the full colour */
@@ -742,9 +797,35 @@ void ledc_step(int32_t track, int32_t step, int32_t first, uint32_t *trig)
 }
 
 /* ---- the LED frame: the preview on the trig keys, then the stock views ------------------------------ */
+/* 1.0: DIGIARCADE (if it's in the build) lights the trig keys while a game is open: its digiarcade_leds[16]
+ * nonzero, then for each trig a byte: 0 dark, else the family + 1 in bits 0-3 and how dim (0-4) in bits 4-6. */
+extern volatile uint8_t digiarcade_leds[] __attribute__((weak));
+extern volatile uint8_t visuals_leds[] __attribute__((weak));   /* VISUALS 0.5: its screensavers, the same way */
 void ledc_frame(void *arg)
 {
-    if (ready && showing) {
+    if (ready && digiarcade_leds && digiarcade_leds[16]) {
+        uint32_t mgr = LED_MGR();
+        static uint32_t neon;                     /* the other keys: an arcade's neon, drifting */
+        static const uint8_t neon_fam[4] = { F_MAGENTA, F_CYAN, F_BLUE, F_LILAC };
+        int32_t trig_led[16];
+        neon++;
+        for (int32_t s = 0; s < 16; s++) {
+            int32_t c = digiarcade_leds[s], f = (c & 15) - 1;
+            trig_led[s] = TRIG_LED(s);
+            LED_SET(mgr, trig_led[s], 2, c && f < FAMILIES ? fade(f, (c >> 4) & 7) : 2);
+        }
+        for (int32_t led = 1; led <= 44; led++) {
+            int32_t trig = 0;
+            for (int32_t s = 0; s < 16; s++) if (trig_led[s] == led) trig = 1;
+            if (!trig) LED_SET(mgr, led, 2, fade(neon_fam[(led / 3 + neon / 20) & 3], 1));
+        }
+    } else if (ready && visuals_leds && visuals_leds[16] && !rec_on) {   /* the screensavers' lights: not while recording */
+        uint32_t mgr = LED_MGR();
+        for (int32_t s = 0; s < 16; s++) {
+            int32_t c = visuals_leds[s], f = (c & 15) - 1;
+            LED_SET(mgr, TRIG_LED(s), 2, c && f < FAMILIES ? fade(f, (c >> 4) & 7) : 2);
+        }
+    } else if (ready && showing) {
         show_frame(LED_MGR());
     } else if (ready && trk_held && !func_down) {   /* with FUNC down the stock quick-mute view shows */
         uint32_t mgr = LED_MGR();

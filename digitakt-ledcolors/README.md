@@ -4,10 +4,11 @@ Recolour the Digitakt's key lights, give each track its own colour, and add ligh
 a heat map of your pattern, ripples when you press a key, breathing keys at rest, and a
 standby light show.
 
-- **Mod:** `ledcolors` 0.9, for Elekloader
+- **Mod:** `ledcolors` 1.1, for Elekloader
 - **Digitakt MKI, OS 1.54 only**
 - **Needs in the build:** `core` (4.0 or later) and `seq-events`
-- **Works with, if it's there:** `djfilter` 0.6 or later (HEAT follows the DJ filter)
+- **Works with, if it's there:** `djfilter` 0.6 or later (HEAT follows the DJ filter), `digiarcade`
+  (the trig keys light up for every game) and `visuals` (the trig keys follow the screensaver)
 
 ---
 
@@ -31,7 +32,7 @@ Everything you change is saved by itself about 2 seconds later and comes back at
 | **LED EDIT** | RED, ORANGE, YELLOW, GREEN, TEAL, CYAN, SKY, BLUE, LILAC, MAGENTA, WHITE | Which colour the three rows below edit (see "How the colours work"). |
 | **LED RED / GREEN / BLUE** | 0–31 | Mix the colour chosen in LED EDIT. Changing one switches the theme to CUSTOM. The trig keys show the result for 3 seconds. |
 | **LED IDLE** | OFF, 30S, 1M, 2M, 5M | How long the Digitakt must be silent and untouched before the standby light show starts. |
-| **LED SHOW** | COMET, RAINBOW, BREATHE, RAIN, SCANNER, SPARKLE, WAVE, HEARTBEAT, FIREWORKS, LITESHOW | Which standby show. Changing it plays the show straight away so you can see it. |
+| **LED SHOW** | COMET, RAINBOW, BREATHE, RAIN, SCANNER, SPARKLE, WAVE, HEARTBEAT, FIREWORKS, LITESHOW, BLOOM | Which standby show. Changing it plays the show straight away so you can see it. |
 | **LED FX** | OFF, HEAT, RIPPLE, BREATH, HEAT+RIP, RIP+BRTH, ALL | The light effects while you work (see "LED FX"). |
 | **TRK 1–16 COLOR** | THEME, or any colour | Each track's own colour (see "Track colours"). |
 
@@ -125,6 +126,12 @@ When the pattern is **stopped** and you haven't touched a key or knob for **5 se
 keys slowly breathe, from off to full, in the active track's colour (or the theme's red). Touch
 anything and it stops.
 
+### While recording: only RIPPLE
+
+In grid recording or live recording, only RIPPLE shows on the trig keys, so you can see your
+trigs. HEAT and BREATH wait, and so do the screensaver lights from `visuals`. They come back when
+you leave recording. (The game lights from `digiarcade` still show if you open a game.)
+
 ### The standby show comes first
 
 If LED IDLE is on and the Digitakt has been silent long enough, the standby show takes over the
@@ -153,8 +160,19 @@ chosen in LED SHOW.
 | HEARTBEAT | A double pulse spreads from the middle, then a rest. |
 | FIREWORKS | Bursts spread out from random keys and fade. |
 | LITESHOW | White, orange and red patterns in five phases, after the Hydrasynth's Lite Show. |
+| BLOOM | A garden that grows itself: the 16 keys are a ring of cells run by a cellular automaton. Each lights in the colour of its age (born white, then through a palette that changes every few minutes) and fades out in blue as it dies. It sows itself again with a new rule when it dies out or loops, and every two minutes anyway, so it never settles. |
 
-All of them use your theme's colours.
+All of them except LITESHOW and BLOOM use your theme's colours.
+
+---
+
+## Games and screensavers
+
+- **DIGIARCADE** (1.0): while a game is open, the trig keys are the game's: lanes, bricks,
+  moles, ghosts and so on, each in its own colours. The other keys glow in a neon theme. Close
+  the game and your own colours come back.
+- **VISUALS** (1.0): while a screensaver runs, the trig keys follow it (rain, lava, the storm's
+  lightning, the Game of Life ...).
 
 ---
 
@@ -217,6 +235,8 @@ about 2 seconds after your last change.
 
 | Version | What changed |
 |---|---|
+| 1.1 | BLOOM, a self-growing light show. While recording only RIPPLE shows: BREATH and the screensaver lights wait. |
+| 1.0 | The trig keys light up for DIGIARCADE's games and follow VISUALS' screensavers. |
 | 0.9 | Editing CUSTOM red shows the edit even when the active track has its own colour. |
 | 0.8 | HEAT follows the DJ filter. HEAT pauses while recording. BREATH starts reliably (sound fading out no longer holds it off) and goes from off to full. |
 | 0.7 | Quick mute (TRK + FUNC) shows the normal green/red mute colours instead of the track colours. |
